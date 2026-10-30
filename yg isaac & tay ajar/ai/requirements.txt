@@ -1,0 +1,10 @@
+langchain-google-genai
+fastapi
+langchain-community
+python-dotenv
+langchain
+pypdf
+python-multipart
+uvicorn
+streamlit
+

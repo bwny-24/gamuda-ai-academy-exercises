@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Complete CSS Tutorial - From Basics to Advanced</title>
+    <link rel="stylesheet" href="example.css" />
+    <style>
+        /* Simple styling for demo boxes */
+        .css-example {
+            background-color: rgb(42, 44, 75);
+            padding: 100px;
+            margin: 20px;
+            border: 18px solid rgba(41, 110, 112, 0.363);
+        }
+
+        /* Simple styling for headings */
+        .css-example h4 {
+            color: rgb(17, 158, 168);
+        }
+
+
+    </style>
+</head>
+<body>
+    <!-- 1. Inline CSS Example -->
+    <div class="css-example">
+        <h4>1. Inline CSS Example (Highest Priority):</h4>
+        <p style="color: rgb(0, 255, 149); font-size: 18px">
+            This text uses inline CSS styling : red and 18px
+        </p>
+    </div>
+</body>
+</html>
+
+<!-- 2. Internal CSS Example -->
+    <div class="css-example">
+        <h4>2. Internal CSS Example (Medium Priority):</h4>
+        <p class="blue-text">
+            This text uses internal CSS styling : blue and 25px
+        </p>
+    </div>
+
+<style>
+    .blue-text {
+        color: rgb(185, 185, 202);
+        font-weight: bold;
+        font-size: 25px;
+    }
+</style>
+
+
+<!-- 3. External CSS Example -->
+    <div class="css-example">
+        <h4>3. External CSS Example (Lowest Priority):</h4>
+        <p class="external-css">
+            This text uses external CSS styling : green and 30px
+        </p>
+    </div>
+</body>
+</html>
+
+<!-- 4. Element Selectors Example -->
+
+<div class = "css-example selector-demo">
+    <h4> 4. Element Selector Example:</h4>
+    <h3> This heading has yellow background</h3>
+    <p> This paragraph text is purple </p>
+    <style>
+        .selector-demo p {
+            color: purple;
+        }
+        .selector-demo h3 {
+            background-color : yellow;
+            padding: 5px
+        }
+    </style>
+</div>
+
+<!-- 5. Class Selectors Example  -->
+
+<div class="css-example">
+    <h4>5. Class Selector Example:</h4>
+    <p class="highlight">Highlighted paragraph</p>
+    <span class="large-text">Large text</span>
+    <style>
+        .highlight {
+            background-color: green;
+            padding: 50px;
+        }
+
+        .large-text {
+            font-size: 24px;
+        }
+    </style>
+</div>
+
+<!-- 6. ID Selectors Example -->
+
+<div class="css-example">
+    <h4>6. ID Selectors Example:</h4>
+
+    <p id="special-paragraph">This is a special paragraph</p>
+    <p id="fancy-text">
+        This paragraph has fancy styling with margin, font, and colors
+    </p>
+    <p id="highlighted-box">
+        This paragraph demonstrates box model properties and typography
+    </p>
+
+    <style>
+        #special-paragraph {
+            color: red;
+            font-weight: bold;
+            border: 2px solid red;
+            padding: 10px;
+        }
+
+    </style>
+</div>
+
+
+<!-- 7. Attribute Selectors Example -->
+
+<div class="css-example">
+    <h4>7. Attribute Selectors Example:</h4>
+    <p>Different input types with attribute-specific styling:</p>
+    <div class="attr-demo" style="text-align: center;">
+        <label for="text-input">Text Input:</label><br />
+        <input type="text" id="text-input" placeholder="Text input (blue border)" />
+        <br /><br />
+
+        <label for="email-input">Email Input:</label><br />
+        <input type="email" id="email-input" placeholder="Email input (green border)" />
+        <br /><br />
+
+        <label for="pass-input">Password Input:</label><br />
+        <input type="password" id="pass-input" placeholder="Password input (red border)" />
+        <br /><br />
+
+        <input type="submit" value="Submit Button (purple)" />
+    </div>
+
+    <style>
+        .attr-demo input[type="text"] {
+            border: 2px solid blue;
+            padding: 15px;
+            margin: 5px;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+
+        .attr-demo input[type="email"] {
+            border: 2px solid green;
+            padding: 15px;
+            margin: 5px;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+    </style>
+</div>
+
+
+
+
