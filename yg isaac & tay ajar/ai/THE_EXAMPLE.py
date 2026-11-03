@@ -485,6 +485,68 @@ def run_exercise_8():
 #endregion
 
 # ==========================================
+# Exercise 9: Video Analytics
+# ==========================================
+#region
+
+def run_exercise_9():
+    print("\n--- Video Analytics ---")
+    
+    # 1. Initialize the LLM (From Slide 15)
+    llm = ChatGoogleGenerativeAI(
+        model=GEMINI_FLASH_LITE_MODEL,  # Using your global model variable
+        api_key=os.getenv("GEMINI_API_KEY")
+    )
+    
+    # 2. Provide the video file path and encode it (From Slide 16)
+    # NOTE: You must provide a valid path to an MP4 file on your local machine here.
+    video_file_path = "sample_video.mp4" 
+    
+    if not os.path.exists(video_file_path):
+        print(f"Error: Could not find the video file at '{video_file_path}'.")
+        print("Please place a short video named 'sample_video.mp4' in this directory or update the 'video_file_path' variable.")
+        return
+
+    print(f"Encoding video file: {video_file_path}...")
+    with open(video_file_path, "rb") as video_file:
+        encoded_video = base64.b64encode(video_file.read()).decode()
+        
+    # 3. Create the prompt template (From Slide 17)
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are an expert video analyst. Analyze videos carefully and provide detailed descriptions."),
+        ("human", [
+            {
+                "type": "text",
+                "text": "{analysis_request}"
+            },
+            {
+                "type": "media",
+                "data": "{video_data}",
+                "mime_type": "{mime_type}"
+            }
+        ])
+    ])
+    
+    # 4. Invoke the chain (From Slide 18)
+    chain = prompt | llm | StrOutputParser()
+    print("Analyzing video...")
+    
+    # You can modify the "analysis_request" based on Exercise 1 in the slides
+    request_text = "Generate a paragraph that summarizes this video, with corresponding timecodes."
+    
+    response = chain.invoke({
+        "analysis_request": request_text,
+        "video_data": encoded_video,
+        "mime_type": "video/mp4"
+    })
+    
+    print("Analysis completed")
+    print("\nResults:\n" + "-" * 40)
+    print(response)
+
+#endregion
+
+# ==========================================
 # Main Menu Configuration
 # ==========================================
 # HOW TO ADD A NEW EXERCISE:
@@ -500,7 +562,8 @@ EXERCISES = {
     "5": ("Exercise 5 : Text Summarization", run_exercise_5),
     "6" : ("Exercise 6: Exercise 6: LLM and Image Analytics", run_exercise_6),
     "7": ("Introduction to Streamlit", run_exercise_7),
-    "8": ("KYC Verification App (Streamlit)", run_exercise_8)
+    "8": ("KYC Verification App (Streamlit)", run_exercise_8),
+    "9": ("Video Analytics", run_exercise_9)
     
     # Example of how to add your next one (remove the '#' to activate it once the function is built):
     # "4": ("My Brand New Exercise", run_exercise_4),
