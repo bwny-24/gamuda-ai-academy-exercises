@@ -1,4 +1,4 @@
-import os, base64
+import os, base64, time
 import streamlit as st
 from datetime import date
 from io import BytesIO
@@ -6,10 +6,18 @@ from typing import Annotated, List
 from pypdf import PdfReader
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+from pymongo import MongoClient
+from langchain_mongodb import MongoDBAtlasVectorSearch
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from langchain_google_genai import ChatGoogleGenerativeAI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_text_splitters import CharacterTextSplitter, RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.embeddings import Embeddings
+from langchain_core.documents import Document
+from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import (
     CommaSeparatedListOutputParser,
     JsonOutputKeyToolsParser,
@@ -20,6 +28,7 @@ app = FastAPI()
 
 load_dotenv()
 GEMINI_FLASH_LITE_MODEL = "gemini-3.5-flash-lite"
+INPUT_PLACEHOLDER = "{input}"
 
 # ==========================================
 # Exercise 1: Comma Separated List Parser
@@ -71,7 +80,7 @@ def run_exercise_2():
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are a helpful assistant. Answer all questions to the best of your ability."),
         MessagesPlaceholder(variable_name="history"),
-        ("human", "{input}"),
+        ("human", INPUT_PLACEHOLDER),
     ])
 
     chain = prompt | llm | StrOutputParser()
@@ -159,7 +168,6 @@ def run_exercise_4():
 
     print("\nSummary:")
     print(response)
-    
 #endregion
 
 # ==========================================
@@ -309,7 +317,7 @@ def run_exercise_7():
             ("system", "You are a helpful assistant that can describe images."),
             ("human",
                 [
-                    {"type": "text", "text": "{input}"},
+                    {"type": "text", "text": INPUT_PLACEHOLDER},
                     {
                         "type": "image_url",
                         "image_url":{
@@ -416,135 +424,455 @@ def run_exercise_8():
 #endregion
 
 # ==========================================
-# Exercise 8: KYC Verification App (Streamlit)
+# Exercise 9: Create Vector Store (MongoDB Atlas)
 # ==========================================
+
+# --- embeddings code : one embedding model for the whole module --- ##
 #region
+# Kept at module level so later exercises (adding docs, searching) can reuse it.
+_base = GoogleGenerativeAIEmbeddings(
+    model="gemini-embedding-2",
+    google_api_key=os.getenv("GEMINI_API_KEY"),
+    output_dimensionality=768,  # must match the Atlas index
+)
 
-def run_exercise_8():
-    print("To run this Streamlit app, you must use this command in your terminal:")
-    print("streamlit run example_4_2.py")
-    
-    # Prevent Streamlit UI from loading in the terminal menu
-    import sys
-    if "streamlit" not in sys.argv[0]:
-        return
+class PrefixedEmbeddings(Embeddings):
+    """gemini-embedding-2 reads the task from a prefix."""
 
-    # Initialize LLM locally for this exercise
-    llm = ChatGoogleGenerativeAI(
-        model=GEMINI_FLASH_LITE_MODEL,
-        api_key=os.getenv("GEMINI_API_KEY")
-    )
+    def embed_documents(self, texts):
+        return _base.embed_documents(
+            [f"title: none | text: {t}" for t in texts]
+        )
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a helpful assistant that can verify identification documents"),
-        ("human", [
-            {"type": "text", "text": "Verify the identification details"},
-            {"type": "text", "text": "Name: {user_name}"},
-            {"type": "text", "text": "DOB: {user_dob}"},
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": "data:{mime_type};base64,{image}",
-                },
-            },
-        ]),
-    ])
+    def embed_query(self, text):
+        return _base.embed_query(
+            f"task: search result | query: {text}"
+        )
 
-    chain = prompt | llm | StrOutputParser()
-
-    st.title("KYC Verification Application")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        uploaded_file = st.file_uploader("Upload your ID document", type=["jpg", "png"])
-
-    with col2:
-        if uploaded_file is not None:
-            image_bytes = uploaded_file.read()
-            st.image(image_bytes)
-        else:
-            st.write("Image Preview")
-
-    user_name = st.text_input("Enter your name")
-    user_dob = st.date_input("Enter your date of birth", min_value=date(1900, 1, 1))
-
-    if uploaded_file is not None and user_name and user_dob:
-        image = base64.b64encode(image_bytes).decode()
-        
-        # Invoke the chain with the user inputs and formatted image
-        res = chain.invoke({
-            "user_name": user_name,
-            "user_dob": user_dob,
-            "image": image,
-            "mime_type": uploaded_file.type
-        })
-        
-        st.write(res)
+embeddings = PrefixedEmbeddings()
 
 #endregion
 
-# ==========================================
-# Exercise 9: Video Analytics
-# ==========================================
+# --- example 1 part: create the vector store ---
 #region
+DB_NAME = "test_db"
+COLLECTION_NAME = "test_collection"
+ATLAS_VECTOR_SEARCH_INDEX_NAME = "test-index-1"
 
 def run_exercise_9():
-    print("\n--- Video Analytics ---")
-    
-    # 1. Initialize the LLM (From Slide 15)
-    llm = ChatGoogleGenerativeAI(
-        model=GEMINI_FLASH_LITE_MODEL,  # Using your global model variable
-        api_key=os.getenv("GEMINI_API_KEY")
-    )
-    
-    # 2. Provide the video file path and encode it (From Slide 16)
-    # NOTE: You must provide a valid path to an MP4 file on your local machine here.
-    video_file_path = "sample_video.mp4" 
-    
-    if not os.path.exists(video_file_path):
-        print(f"Error: Could not find the video file at '{video_file_path}'.")
-        print("Please place a short video named 'sample_video.mp4' in this directory or update the 'video_file_path' variable.")
-        return
+    MONGODB_URI = os.getenv("MONGODB_ATLAS_CLUSTER_URI")
 
-    print(f"Encoding video file: {video_file_path}...")
-    with open(video_file_path, "rb") as video_file:
-        encoded_video = base64.b64encode(video_file.read()).decode()
-        
-    # 3. Create the prompt template (From Slide 17)
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are an expert video analyst. Analyze videos carefully and provide detailed descriptions."),
-        ("human", [
-            {
-                "type": "text",
-                "text": "{analysis_request}"
-            },
-            {
-                "type": "media",
-                "data": "{video_data}",
-                "mime_type": "{mime_type}"
-            }
-        ])
-    ])
-    
-    # 4. Invoke the chain (From Slide 18)
-    chain = prompt | llm | StrOutputParser()
-    print("Analyzing video...")
-    
-    # You can modify the "analysis_request" based on Exercise 1 in the slides
-    request_text = "Generate a paragraph that summarizes this video, with corresponding timecodes."
-    
-    response = chain.invoke({
-        "analysis_request": request_text,
-        "video_data": encoded_video,
-        "mime_type": "video/mp4"
-    })
-    
-    print("Analysis completed")
-    print("\nResults:\n" + "-" * 40)
-    print(response)
+    # Connect to MongoDB
+    client = MongoClient(MONGODB_URI)
+    MONGODB_COLLECTION = client[DB_NAME][COLLECTION_NAME]
+
+    # Instantiate the vector store
+    vector_store = MongoDBAtlasVectorSearch(
+        collection=MONGODB_COLLECTION,
+        embedding=embeddings,
+        index_name=ATLAS_VECTOR_SEARCH_INDEX_NAME,
+        relevance_score_fn="cosine",
+    )
+
+    # Create the vector search index
+    print("Creating vector search index...")
+    vector_store.create_vector_search_index(
+        dimensions=768, wait_until_complete=60
+    )
+    print("Vector Store Created!")
+
+    client.close()
 
 #endregion
+
+# ==========================================
+# Exercise 10: Store the Embeddings(MongoDB Atlas)
+# ==========================================
+#region
+
+# facts.txt sits next to this script, so it is found no matter where you run from
+FACTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "facts.txt")
+
+# Load the text file as one Document
+def load_text_document(file_path: str) -> list[Document]:
+    with open(file_path, "r", encoding="utf-8") as f:
+        text = f.read()
+    return [Document(page_content=text, metadata={"source": file_path})]
+
+def run_exercise_10():
+    MONGODB_URI = os.getenv("MONGODB_ATLAS_CLUSTER_URI")
+
+    client = MongoClient(MONGODB_URI)
+    MONGODB_COLLECTION = client[DB_NAME][COLLECTION_NAME]
+
+    vector_store = MongoDBAtlasVectorSearch(
+        collection=MONGODB_COLLECTION,
+        embedding=embeddings,
+        index_name=ATLAS_VECTOR_SEARCH_INDEX_NAME,
+        relevance_score_fn="cosine",
+    )
+
+    # Start clean: re-embed everything on each run
+    MONGODB_COLLECTION.delete_many({})
+    print("Previous documents cleared")
+
+    docs = load_text_document(FACTS_FILE)
+
+    # Split into chunks of about 200 characters
+    text_splitter = CharacterTextSplitter(
+        separator="\n",
+        chunk_size=200,
+        chunk_overlap=0,
+    )
+    split_docs = text_splitter.split_documents(docs)
+
+    # Add the chunks to the vector store
+    print("Adding documents...")
+    vector_store.add_documents(split_docs)
+    print(f"Documents Added ({len(split_docs)} chunks)")
+
+    client.close()
+
+#endregion
+
+# ==========================================
+# Exercise 11: Perform the Query (RAG)
+# ==========================================
+#region
+# STEP 0: IMPORTS -> added RunnablePassthrough at the top of the file.
+#         Skipped `load_dotenv()` and `from embeddings import embeddings` (already in this file).
+#
+# STEP 1: SHARED STUFF (outside the function)
+#   Reusing from Exercise 9: DB_NAME, COLLECTION_NAME, ATLAS_VECTOR_SEARCH_INDEX_NAME, embeddings
+
+# Merge the retrieved chunks into one string, so it can be pasted into {context}
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+# STEP 2: THE FUNCTION
+def run_exercise_11():
+    # 2a. Setup: LLM + MongoDB connection + vector store (same as Exercise 10)
+    # Using the lite model: "gemini-3.8-flash" (the slide's model) was returning 503 "high demand"
+    llm = ChatGoogleGenerativeAI(model=GEMINI_FLASH_LITE_MODEL, api_key=os.getenv("GEMINI_API_KEY"))
+
+    client = MongoClient(os.getenv("MONGODB_ATLAS_CLUSTER_URI"))
+    MONGODB_COLLECTION = client[DB_NAME][COLLECTION_NAME]
+
+    vector_store = MongoDBAtlasVectorSearch(
+        collection=MONGODB_COLLECTION,
+        embedding=embeddings,
+        index_name=ATLAS_VECTOR_SEARCH_INDEX_NAME,
+        relevance_score_fn="cosine",
+    )
+
+    # 2b. The new part: retriever + prompt + RAG chain
+    # Retriever = a "search box" over the vector store. k=3 returns the top 3 most relevant chunks
+    retriever = vector_store.as_retriever(search_kwargs={"k": 3})
+
+    # System prompt: tell the AI to answer ONLY from the retrieved context
+    system_prompt = (
+        """
+        You are a helpful assistant that answers questions using ONLY the context below.
+        If the answer is not in the context, say "I don't know based on the provided facts."
+        Do not use any outside knowledge.
+        CONTEXT:\n{context}
+        """
+    )
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        ("human", INPUT_PLACEHOLDER),
+    ])
+
+    # Prepare the inputs for the prompt:
+    #   "context" -> question goes into the retriever, the found chunks go into format_docs
+    #   "input"   -> RunnablePassthrough() passes the question through unchanged
+    setup_and_retrieval = {
+        "context": retriever | format_docs,
+        "input": RunnablePassthrough(),
+    }
+
+    # Retrieve -> build the prompt -> call the LLM -> parse the text
+    rag_chain = setup_and_retrieval | prompt | llm | StrOutputParser()
+
+    # 2c. Show the result
+    print("Querying Vector DB...")
+    response = rag_chain.invoke("What animal should I get if I want a pet that is low maintenance and doesn't require much attention?")
+    print(f"\nAI Response: {response}")
+
+    # 2d. Clean up
+    client.close()
+
+# STEP 3: menu line added in EXERCISES below.
+
+
+
+#endregion
+
+# ==========================================
+# Exercise 12: Create PDF Vector Store (MongoDB Atlas)
+# ==========================================
+#region
+# STEP 0: IMPORTS -> nothing new, MongoClient / MongoDBAtlasVectorSearch / embeddings already exist.
+#
+# STEP 1: SHARED STUFF (outside the function)
+#   New names so they don't overwrite Exercise 9's COLLECTION_NAME / ATLAS_VECTOR_SEARCH_INDEX_NAME
+#   (Exercises 10 & 11 still use those). DB_NAME is reused: same "test_db".
+PDF_COLLECTION_NAME = "test_collection_pdf"
+PDF_INDEX_NAME = "test-index-pdf"
+
+# STEP 2: THE FUNCTION (same as run_exercise_9, only the collection + index names change)
+def run_exercise_12():
+    # 2a. Setup: connect and point at the NEW collection
+    client = MongoClient(os.getenv("MONGODB_ATLAS_CLUSTER_URI"))
+    MONGODB_COLLECTION = client[DB_NAME][PDF_COLLECTION_NAME]
+
+    vector_store = MongoDBAtlasVectorSearch(
+        collection=MONGODB_COLLECTION,
+        embedding=embeddings,
+        index_name=PDF_INDEX_NAME,
+        relevance_score_fn="cosine",
+    )
+
+    # 2b. The new part: create the index on the new collection
+    print("Creating PDF vector search index...")
+    vector_store.create_vector_search_index(
+        dimensions=768, wait_until_complete=60  # must match output_dimensionality in Exercise 9
+    )
+
+    # 2c. Show the result
+    print("PDF Vector Store Created!")
+
+    # 2d. Clean up
+    client.close()
+
+# STEP 3: menu line added in EXERCISES below.
+#endregion
+
+# ==========================================
+# Exercise 13: Store the PDF Chunks (MongoDB Atlas)
+# ==========================================
+#region
+# STEP 0: IMPORTS -> added `time` and RecursiveCharacterTextSplitter at the top of the file.
+#
+# STEP 1: SHARED STUFF (outside the function)
+#   Reusing from Exercise 12: DB_NAME, PDF_COLLECTION_NAME, PDF_INDEX_NAME
+#   diabetes.pdf sits next to this script, same idea as FACTS_FILE
+PDF_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "diabetes.pdf")
+
+# Custom PDF loader: one Document per page
+def load_pdf_document(file_path: str) -> list[Document]:
+    reader = PdfReader(file_path)
+    docs = []
+    for i, page in enumerate(reader.pages):
+        text = page.extract_text()
+        if text:  # skip empty pages (e.g. image-only pages)
+            # Page numbers tell the LLM where info came from
+            docs.append(Document(
+                page_content=text,
+                metadata={"source": file_path, "page": i + 1},
+            ))
+    return docs
+
+# STEP 2: THE FUNCTION
+def run_exercise_13():
+    # 2a. Setup: connect to the PDF collection from Exercise 12
+    client = MongoClient(os.getenv("MONGODB_ATLAS_CLUSTER_URI"))
+    MONGODB_COLLECTION = client[DB_NAME][PDF_COLLECTION_NAME]
+
+    vector_store = MongoDBAtlasVectorSearch(
+        collection=MONGODB_COLLECTION,
+        embedding=embeddings,
+        index_name=PDF_INDEX_NAME,
+        relevance_score_fn="cosine",
+    )
+
+    # Start clean, then re-embed everything
+    MONGODB_COLLECTION.delete_many({})
+    print("Previous documents cleared")
+
+    # 2b. The new part: load PDF -> split -> add in batches
+    # Recursive splitter tries paragraphs first, then lines, then words,
+    # so chunks break at natural places. overlap=100 keeps context across cuts.
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=100,
+    )
+
+    print("Loading PDF...")
+    pdf_docs = load_pdf_document(PDF_FILE)
+
+    # Split the pages into chunks
+    docs = text_splitter.split_documents(pdf_docs)
+    print(f"Total chunks: {len(docs)}")
+
+    # Add in batches; wait and retry on errors (free tier: 100 requests per minute)
+    BATCH_SIZE = 50
+    for i in range(0, len(docs), BATCH_SIZE):
+        batch = docs[i:i + BATCH_SIZE]
+        for attempt in range(5):
+            try:
+                vector_store.add_documents(batch)
+                break
+            except Exception as e:
+                wait = 15 * 2 ** attempt  # 15s, 30s, 60s, 120s, 240s
+                print(f"Retry in {wait}s: {e}")
+                time.sleep(wait)
+        # 2c. Show progress
+        print(f"Added chunks {i + 1}-{i + len(batch)} of {len(docs)}")
+        time.sleep(60)  # free tier: 100 RPM
+
+    # 2d. Clean up
+    client.close()
+
+# STEP 3: menu line added in EXERCISES below.
+#endregion
+
+# ==========================================
+# Exercise 14: Query the PDF (RAG)
+# ==========================================
+#region
+# STEP 0: IMPORTS -> nothing new, all already imported for Exercise 11.
+#
+# STEP 1: SHARED STUFF
+#   Reusing: DB_NAME, PDF_COLLECTION_NAME, PDF_INDEX_NAME (Exercise 12),
+#            format_docs (Exercise 11), INPUT_PLACEHOLDER, GEMINI_FLASH_LITE_MODEL
+
+# Builds the PDF RAG chain. Kept outside run_exercise_14 so Exercise 15 (FastAPI) can reuse it.
+# The caller opens the MongoClient and is responsible for closing it.
+def build_pdf_rag_chain(client):
+    # Lite model instead of the slide's "gemini-3.8-flash" (that one gave 503 "high demand" in Exercise 11)
+    llm = ChatGoogleGenerativeAI(model=GEMINI_FLASH_LITE_MODEL, api_key=os.getenv("GEMINI_API_KEY"))
+
+    MONGODB_COLLECTION = client[DB_NAME][PDF_COLLECTION_NAME]
+
+    vector_store = MongoDBAtlasVectorSearch(
+        collection=MONGODB_COLLECTION,
+        embedding=embeddings,
+        index_name=PDF_INDEX_NAME,
+        relevance_score_fn="cosine",
+    )
+
+    # k=10 returns the top 10 most relevant chunks (more than Exercise 11's 3,
+    # because PDF chunks are pieces of longer explanations)
+    retriever = vector_store.as_retriever(search_kwargs={"k": 10})
+
+    # System prompt: answer only from the PDF, and say what to do when it has NO answer
+    system_prompt = (
+        """
+        You are a helpful medical information assistant. Answer the question using ONLY the context below,
+        which comes from a document about diabetes.
+        - Keep the answer clear and concise; use bullet points for lists.
+        - If the context does not contain the answer, reply exactly:
+          "Sorry, I couldn't find that information in the diabetes document."
+          Do not guess or use outside knowledge.
+        - Do not give personal medical advice; suggest consulting a doctor for personal decisions.
+        Context:\n{context}
+        """
+    )
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        ("human", INPUT_PLACEHOLDER),
+    ])
+
+    # Retrieve, build the prompt, call the LLM, parse the text
+    return (
+        {"context": retriever | format_docs, "input": RunnablePassthrough()}
+        | prompt | llm | StrOutputParser()
+    )
+
+# STEP 2: THE FUNCTION
+def run_exercise_14():
+    # 2a. Setup: connect, then build the chain with the helper above
+    client = MongoClient(os.getenv("MONGODB_ATLAS_CLUSTER_URI"))
+    rag_chain = build_pdf_rag_chain(client)
+
+    # 2c. Execute the query (change the question here)
+    print("Querying Vector DB...")
+    response = rag_chain.invoke("Can diabetes be prevented, and how?")
+    print(f"\nAI Response: {response}")
+
+    # 2d. Clean up
+    client.close()
+
+# STEP 3: menu line added in EXERCISES below.
+#endregion
+
+# ==========================================
+# Exercise 15: Ask the PDF via FastAPI (GET endpoint)
+# ==========================================
+#region
+# STEP 0: IMPORTS -> nothing new (FastAPI, HTTPException already imported for Exercise 5/6).
+#
+# STEP 1: SHARED STUFF
+#   FastAPI special case: the route lives at module level (like Exercise 5/6),
+#   because uvicorn looks for `app` and its routes when it imports this file.
+
+# GET /ask-pdf?question=...
+# A plain `question: str` parameter (not in the path) = FastAPI reads it from the query string
+@app.get("/ask-pdf", responses={
+    400: {"description": "Question is empty"},
+    500: {"description": "Error answering the question"},
+})
+async def ask_pdf(question: str) -> dict:
+    if not question.strip():
+        raise HTTPException(status_code=400, detail="Please provide a question.")
+
+    # Reuse the chain from Exercise 14. `with` closes the MongoDB connection automatically
+    with MongoClient(os.getenv("MONGODB_ATLAS_CLUSTER_URI")) as client:
+        rag_chain = build_pdf_rag_chain(client)
+        try:
+            answer = await rag_chain.ainvoke(question)
+        except Exception as e:
+            print(e)
+            raise HTTPException(status_code=500, detail="An error occurred while answering the question.")
+
+    return {"question": question, "answer": answer}
+
+# STEP 2: THE FUNCTION (FastAPI special case: just prints how to start the server)
+def run_exercise_15():
+    print("This is a FastAPI endpoint. To run the server, use Uvicorn in your terminal:")
+    print("uvicorn THE_EXAMPLE:app --reload")
+    print("Then open the Swagger UI at http://127.0.0.1:8000/docs and try GET /ask-pdf")
+
+# STEP 3: menu line added in EXERCISES below.
+#endregion
+
+# ==========================================
+# Exercise 16: Diabetes RAG Chatbot Frontend (Option 2: own frontend)
+# ==========================================
+#region
+# STEP 0: IMPORTS -> added CORSMiddleware and FileResponse at the top of the file.
+#
+# STEP 1: SHARED STUFF (FastAPI special case: module level)
+#   The page itself is frontend/chatbot.html; it calls GET /ask-pdf from Exercise 15.
+
+# CORS: lets a page from another origin (e.g. chatbot.html opened by double-click = file://)
+# call this API. "*" is fine for local development only.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+CHATBOT_PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "chatbot.html")
+
+# Serves the chat page from the same server, so http://127.0.0.1:8000/chat just works
+@app.get("/chat", include_in_schema=False)
+async def chat_page():
+    return FileResponse(CHATBOT_PAGE)
+
+# STEP 2: THE FUNCTION (FastAPI special case: just prints how to start it)
+def run_exercise_16():
+    print("To run the chatbot, start the server in your terminal:")
+    print("uvicorn THE_EXAMPLE:app --reload")
+    print("Then open http://127.0.0.1:8000/chat in your browser")
+
+# STEP 3: menu line added in EXERCISES below.
+#endregion
+
 
 # ==========================================
 # Main Menu Configuration
@@ -555,18 +883,27 @@ def run_exercise_9():
 # Format: "Menu Number": ("Description of what it does", name_of_function_without_parentheses)
 
 EXERCISES = {
-    "1": ("Comma Separated List Output Parser", run_exercise_1),
-    "2": ("Chat with Conversation History", run_exercise_2),
-    "3": ("Thinking Level Parameter", run_exercise_3),
+    "1": ("Exercise 1 : Comma Separated List Output Parser", run_exercise_1),
+    "2": ("Exercise 2 : Chat with Conversation History", run_exercise_2),
+    "3": ("Exercise 3 : Thinking Level Parameter", run_exercise_3),
     "4": ("Exercise 4 : Text Summarization (Webpage)", run_exercise_4),
     "5": ("Exercise 5 : Text Summarization", run_exercise_5),
-    "6" : ("Exercise 6: Exercise 6: LLM and Image Analytics", run_exercise_6),
-    "7": ("Introduction to Streamlit", run_exercise_7),
-    "8": ("KYC Verification App (Streamlit)", run_exercise_8),
-    "9": ("Video Analytics", run_exercise_9)
-    
+    "6" : ("Exercise 6 : LLM and Image Analytics", run_exercise_6),
+    "7": ("Exercise 7 : Introduction to Streamlit", run_exercise_7),
+    "8": ("Exercise 8 : KYC Verification App (Streamlit)", run_exercise_8),
+    "9": ("Exercise 9 : Create Vector Store (MongoDB Atlas)", run_exercise_9),
+    "10": ("Exercise 10 : Store the Embeddings (MongoDB Atlas)", run_exercise_10),
+    "11": ("Exercise 11 : Perform the Query (RAG)", run_exercise_11),
+    "12": ("Exercise 12 : Create PDF Vector Store (MongoDB Atlas)", run_exercise_12),
+    "13": ("Exercise 13 : Store the PDF Chunks (MongoDB Atlas)", run_exercise_13),
+    "14": ("Exercise 14 : Query the PDF (RAG)", run_exercise_14),
+    "15": ("Exercise 15 : Ask the PDF via FastAPI (GET endpoint)", run_exercise_15),
+    "16": ("Exercise 16 : Diabetes RAG Chatbot Frontend", run_exercise_16),
+
     # Example of how to add your next one (remove the '#' to activate it once the function is built):
-    # "4": ("My Brand New Exercise", run_exercise_4),
+    # "17": ("Exercise 17 : <slide title>", run_exercise_17),
+    #   - the key is a STRING ("17"), it's what you type in the menu
+    #   - the function name has NO () — the menu calls it for you
 }
 
 if __name__ == "__main__":

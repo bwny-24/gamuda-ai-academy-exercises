@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Diabetes Care AI</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --border: #e3e7ef;
+      --text: #1f2933;
+      --muted: #7b8794;
+      --user: #1d4ed8;
+      --bot-icon: #16a34a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 20px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      width: 36px; height: 36px;
+      border-radius: 8px;
+      background: var(--user);
+      color: white;
+      display: grid; place-items: center;
+      font-size: 18px;
+    }
+    header h1 { margin: 0; font-size: 16px; }
+    header p { margin: 0; font-size: 12px; color: var(--muted); }
+    #resetBtn {
+      margin-left: auto;
+      background: none; border: none;
+      font-size: 18px; color: var(--muted);
+      cursor: pointer;
+    }
+
+    /* Chat area */
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .row { display: flex; gap: 10px; align-items: flex-start; }
+    .row.user { flex-direction: row-reverse; }
+    .avatar {
+      flex-shrink: 0;
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      display: grid; place-items: center;
+      color: white; font-size: 14px;
+      background: var(--bot-icon);
+    }
+    .row.user .avatar { background: var(--user); }
+    .bubble-wrap { max-width: 75%; display: flex; flex-direction: column; }
+    .row.user .bubble-wrap { align-items: flex-end; }
+    .bubble {
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      background: var(--panel);
+      border: 1px solid var(--border);
+    }
+    .row.user .bubble { background: var(--user); color: white; border: none; }
+    .bubble.error { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
+    .time { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* "Thinking..." dots */
+    .typing span {
+      display: inline-block;
+      width: 6px; height: 6px; margin: 0 2px;
+      border-radius: 50%;
+      background: var(--muted);
+      animation: blink 1.2s infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.2s; }
+    .typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes blink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+
+    /* Input area */
+    footer {
+      padding: 12px 20px 8px;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+    }
+    form {
+      max-width: 700px;
+      margin: auto;
+      display: flex;
+      gap: 8px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 6px 6px 6px 14px;
+    }
+    form:focus-within { border-color: var(--user); }
+    #question { flex: 1; border: none; outline: none; font-size: 14px; }
+    #sendBtn {
+      border: none; border-radius: 8px;
+      padding: 8px 14px;
+      background: var(--user); color: white;
+      cursor: pointer;
+    }
+    #sendBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .disclaimer { text-align: center; font-size: 11px; color: var(--muted); margin: 6px 0 0; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo">✦</div>
+    <div>
+      <h1>Diabetes Care AI</h1>
+      <p>RAG Powered · Gemini Flash Lite</p>
+    </div>
+    <button id="resetBtn" title="Start a new chat">⟳</button>
+  </header>
+
+  <main id="chat"></main>
+
+  <footer>
+    <form id="chatForm">
+      <input id="question" type="text" autocomplete="off"
+             placeholder="Ask about diabetes symptoms, types, diagnosis...">
+      <button id="sendBtn" type="submit">Send</button>
+    </form>
+    <p class="disclaimer">ⓘ AI answers are based on the diabetes document and may not cover all medical cases.</p>
+  </footer>
+
+  <script>
+    // Opened through FastAPI (http://127.0.0.1:8000/chat) -> same server, so a relative URL works.
+    // Opened by double-clicking the file (file://) -> point at the uvicorn server directly.
+    const API_BASE = location.protocol.startsWith("http") ? "" : "http://127.0.0.1:8000";
+
+    const GREETING = "Hello! I am your diabetes care assistant. I can answer questions based on the medical document provided. How can I help you today?";
+
+    const chat = document.getElementById("chat");
+    const form = document.getElementById("chatForm");
+    const input = document.getElementById("question");
+    const sendBtn = document.getElementById("sendBtn");
+
+    function currentTime() {
+      return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+
+    // Escape HTML first (so AI text can't inject tags), then apply light formatting:
+    // **bold** -> <strong>, and "* " / "- " at the start of a line -> "• "
+    function formatAnswer(text) {
+      const escaped = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      return escaped
+        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+        .replace(/^(\s*)[*-] /gm, "$1• ");
+    }
+
+    // Adds one message row to the chat and returns its bubble element
+    function addMessage(sender, text, { isError = false } = {}) {
+      const row = document.createElement("div");
+      row.className = `row ${sender}`;
+      row.innerHTML = `
+        <div class="avatar">${sender === "user" ? "🙂" : "🤖"}</div>
+        <div class="bubble-wrap">
+          <div class="bubble${isError ? " error" : ""}"></div>
+          <div class="time">${currentTime()}</div>
+        </div>`;
+      const bubble = row.querySelector(".bubble");
+      if (sender === "bot") {
+        bubble.innerHTML = formatAnswer(text);
+      } else {
+        bubble.textContent = text;  // user text is shown as plain text
+      }
+      chat.appendChild(row);
+      chat.scrollTop = chat.scrollHeight;
+      return row;
+    }
+
+    function addTyping() {
+      const row = addMessage("bot", "");
+      row.querySelector(".bubble").innerHTML = '<span class="typing"><span></span><span></span><span></span></span>';
+      return row;
+    }
+
+    async function askQuestion(question) {
+      // GET /ask-pdf?question=...  (encodeURIComponent makes spaces, ? and & safe in a URL)
+      const url = `${API_BASE}/ask-pdf?question=${encodeURIComponent(question)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || `Server error (${res.status})`);
+      }
+      return data.answer;
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();  // stop the browser from reloading the page
+      const question = input.value.trim();
+      if (!question) return;
+
+      addMessage("user", question);
+      input.value = "";
+      sendBtn.disabled = true;
+      const typingRow = addTyping();
+
+      try {
+        const answer = await askQuestion(question);
+        typingRow.remove();
+        addMessage("bot", answer);
+      } catch (err) {
+        typingRow.remove();
+        const message = err instanceof TypeError
+          ? "Can't reach the server. Is uvicorn running? (uvicorn THE_EXAMPLE:app --reload)"
+          : err.message;
+        addMessage("bot", message, { isError: true });
+      } finally {
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    });
+
+    function resetChat() {
+      chat.innerHTML = "";
+      addMessage("bot", GREETING);
+      input.focus();
+    }
+
+    document.getElementById("resetBtn").addEventListener("click", resetChat);
+    resetChat();
+  </script>
+</body>
+</html>

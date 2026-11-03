@@ -7,4 +7,9 @@ pypdf
 python-multipart
 uvicorn
 streamlit
-
+langchain-core
+langchain-text-splitters
+pymongo
+langchain-mongodb
+pypdf
+certifi; sys_platform == "darwin"
