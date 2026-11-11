@@ -9,13 +9,13 @@ from pathlib import Path
 # 3 levels:  Phase  ->  Section (a week/topic)  ->  Exercise
 #   - Levels 1 and 2 are here.
 #   - Level 3 (the exercises) is in each section's own menu file
-#     (phase1_web fundamentals/week 1/exercises.py, phase4_genai and agentic/ai/THE_EXAMPLE.py, ...).
+#     (phase1_webFundamentals/week 1/exercises.py, phase4_genai&agentic/ai/THE_EXAMPLE.py, ...).
 # Non-Python exercises (HTML, React, FastAPI) are opened/started by lesson/launch.py.
 # Picking a section starts that file as its own program, inside its own folder,
 # so its .env, PDFs, HTML pages etc. are found exactly as if you ran it yourself.
 #
 # Folders on disk follow the same idea:
-#   lesson/phaseN_<name>/week N/...   (AI stays in one folder: phase4_genai and agentic/ai)
+#   lesson/phaseN_<name>/week N/...   (AI stays in one folder: phase4_genai&agentic/ai)
 
 LESSON_DIR = Path(__file__).resolve().parent
 
@@ -24,25 +24,25 @@ LESSON_DIR = Path(__file__).resolve().parent
 #   path is relative to lesson/.  None = not built yet (shows "coming soon")
 PHASES = {
     "1": ("Phase 1 : Web Fundamentals", {
-        "1": ("Week 1 : Web Fundamentals (HTML & CSS)", "phase1_web fundamentals/week 1/exercises.py"),
-        "2": ("Week 2 : JavaScript Essentials", "phase1_web fundamentals/week 2/exercises.py"),
+        "1": ("Week 1 : Web Fundamentals (HTML & CSS)", "phase1_webFundamentals/week 1/exercises.py"),
+        "2": ("Week 2 : JavaScript Essentials", "phase1_webFundamentals/week 2/exercises.py"),
         "3": ("Week 3 : Design & Version Control (Figma, Git)", None),
     }),
     "2": ("Phase 2 : React Development & State", {
         "1": ("Week 3 : React Core", "phase2_react/week 3/exercises.py"),
-        "2": ("Week 4 : State, Hooks & A34PIs", "phase2_react/week 4/exercises.py"),
+        "2": ("Week 4 : State, Hooks & APIs", "phase2_react/week 4/exercises.py"),
         "3": ("Week 5 : Advanced React", None),
     }),
     "3": ("Phase 3 : Backend Integration & Cloud Services", {
         "1": ("Week 5 : Backend Foundations (FastAPI)", None),
-        "2": ("Week 6 : Full-Stack Integration & Serverless", "phase3_backend and cloud/week 6/exercises.py"),
+        "2": ("Week 6 : Full-Stack Integration & Serverless", "phase3_backend&cloud/exercises.py"),
         "3": ("Week 7 : Cloud Infrastructure & Deployment", None),
         "4": ("Week 9-10 : Cloud Security, Data & Observability", None),
     }),
     "4": ("Phase 4 : Generative AI & Agentic Systems", {
         # Kept together in one file: all these exercises use AI and share helpers
-        "1": ("Week 7-9 : GenAI, RAG & Agents (AI)", "phase4_genai and agentic/ai/THE_EXAMPLE.py"),
-        "2": ("Introduction to Computer Vision (OpenCV)", "phase4_genai and agentic/computerVision/exercises.py"),
+        "1": ("Week 7-9 : GenAI, RAG & Agents (AI)", "phase4_genai&agentic/ai/THE_EXAMPLE.py"),
+        "2": ("Introduction to Computer Vision (OpenCV)", "phase4_genai&agentic/computerVision/exercises.py"),
     }),
 }
 
