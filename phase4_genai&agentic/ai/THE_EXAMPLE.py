@@ -1,8 +1,9 @@
-import os, base64, time
+import os, sys, base64, time, ast, operator, asyncio, logging
+import requests
 import streamlit as st
 from datetime import date
 from io import BytesIO
-from typing import Annotated, List
+from typing import Annotated, List, Dict, Any
 from pypdf import PdfReader
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -15,6 +16,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmb
 from langchain_text_splitters import CharacterTextSplitter, RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
+from langchain.tools import tool
+from langchain.agents import create_agent
+from tavily import TavilyClient
 from langchain_core.embeddings import Embeddings
 from langchain_core.documents import Document
 from langchain_core.runnables import RunnablePassthrough
@@ -23,12 +27,19 @@ from langchain_core.output_parsers import (
     JsonOutputKeyToolsParser,
     StrOutputParser,
 )
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.postgres import PostgresSaver
+from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddleware
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
 
 app = FastAPI()
 
 load_dotenv()
 GEMINI_FLASH_LITE_MODEL = "gemini-3.5-flash-lite"
 INPUT_PLACEHOLDER = "{input}"
+UVICORN_APP_COMMAND = "uvicorn THE_EXAMPLE:app --reload"
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 
 # ==========================================
 # Exercise 1: Comma Separated List Parser
@@ -173,7 +184,7 @@ def run_exercise_4():
 # ==========================================
 # Exercise 5: Introduction of Text Summarization
 # ==========================================
-#region]
+#region
 
 # Define the PDF reading helper and route globally
 def read_pdf_file(file_contents: BytesIO) -> str:
@@ -213,7 +224,7 @@ async def summarize_pdf(file: Annotated[UploadFile, File(...)]):
 
 def run_exercise_5():
     print("To run this FastAPI endpoint, use Uvicorn in your terminal:")
-    print("uvicorn example_4:app --reload")
+    print(UVICORN_APP_COMMAND)
 
 #endregion
 
@@ -287,7 +298,7 @@ async def analyze_image(file: Annotated[UploadFile, File(...)]) -> dict:
 def run_exercise_6():
     print("This is a FastAPI endpoint.")
     print("To run the server, use Uvicorn in your terminal:")
-    print("uvicorn example_4:app --reload")
+    print(UVICORN_APP_COMMAND)
     print("Then send a POST request to http://127.0.0.1:8000/analyze-image with your image file.")
 
 #endregion
@@ -299,7 +310,7 @@ def run_exercise_6():
 
 def run_exercise_7():
     print("To run this Streamlit app, you must use this command in your terminal:")
-    print("streamlit run example_4.py")
+    print("streamlit run THE_EXAMPLE.py")
     
     # If running via streamlit, the code below will execute on the web page.
     # We use a check to prevent Streamlit from running inside the basic terminal menu.
@@ -361,7 +372,7 @@ def run_exercise_7():
 
 def run_exercise_8():
     print("To run this Streamlit app, you must use this command in your terminal:")
-    print("streamlit run example_4_2.py")
+    print("streamlit run THE_EXAMPLE.py")
     
     # Prevent Streamlit UI from loading in the terminal menu
     import sys
@@ -833,7 +844,7 @@ async def ask_pdf(question: str) -> dict:
 # STEP 2: THE FUNCTION (FastAPI special case: just prints how to start the server)
 def run_exercise_15():
     print("This is a FastAPI endpoint. To run the server, use Uvicorn in your terminal:")
-    print("uvicorn THE_EXAMPLE:app --reload")
+    print(UVICORN_APP_COMMAND)
     print("Then open the Swagger UI at http://127.0.0.1:8000/docs and try GET /ask-pdf")
 
 # STEP 3: menu line added in EXERCISES below.
@@ -867,12 +878,485 @@ async def chat_page():
 # STEP 2: THE FUNCTION (FastAPI special case: just prints how to start it)
 def run_exercise_16():
     print("To run the chatbot, start the server in your terminal:")
-    print("uvicorn THE_EXAMPLE:app --reload")
+    print(UVICORN_APP_COMMAND)
     print("Then open http://127.0.0.1:8000/chat in your browser")
 
 # STEP 3: menu line added in EXERCISES below.
 #endregion
 
+# ==========================================
+# Exercise 17: AI Agent with Tool Calling
+# ==========================================
+#region
+# STEP 0: IMPORTS -> added ast, operator, `tool` and `create_agent` at the top of the file.
+#
+# STEP 1: SHARED STUFF (outside the function)
+
+# Safe maths instead of the slide's eval(): eval() runs ANY Python code the LLM sends
+# (e.g. deleting files), so we only allow numbers and + - * / // % ** and brackets.
+_ALLOWED_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+def _safe_eval(node):
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return node.value
+    if isinstance(node, ast.BinOp) and type(node.op) in _ALLOWED_OPERATORS:
+        return _ALLOWED_OPERATORS[type(node.op)](_safe_eval(node.left), _safe_eval(node.right))
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _ALLOWED_OPERATORS:
+        return _ALLOWED_OPERATORS[type(node.op)](_safe_eval(node.operand))
+    raise ValueError("Only numbers and + - * / // % ** ( ) are allowed")
+
+# Define a tool with custom name and description.
+# The LLM reads the name + description to decide WHEN to call it,
+# and the type hint (expression: str) to know WHAT to send.
+@tool("calculator", description="Performs mathematical calculations. Input is a Python maths expression, e.g. '10000 * (1 + 0.08) ** 5'.")
+def calculator(expression: str) -> str:
+    try:
+        result = _safe_eval(ast.parse(expression, mode="eval").body)
+        return str(result)
+    except Exception as e:
+        return f"Error: {e}"
+
+# STEP 2: THE FUNCTION
+def run_exercise_17():
+    # 2a. Setup: LLM + agent
+    llm = ChatGoogleGenerativeAI(model=GEMINI_FLASH_LITE_MODEL, api_key=os.getenv("GEMINI_API_KEY"))
+
+    tools = [calculator]
+    agent = create_agent(
+        model=llm,
+        tools=tools,
+        system_prompt="You are a helpful assistant. Use the calculator tool for any maths.",
+    )
+
+    # 2b. The new part: ask a question; the agent decides by itself whether to call the tool
+    question = HumanMessage(content="What's the result of an investment of $10,000 growing at 8% annually for 5 years with compound interest?")
+    response = agent.invoke({"messages": [question]})
+
+    # 2c. Show the result
+    # Print every step so you can SEE the tool call happen (not on the slide, just for learning)
+    for msg in response["messages"]:
+        if msg.type == "ai" and msg.tool_calls:
+            for call in msg.tool_calls:
+                print(f"[Agent calls tool] {call['name']}({call['args']})")
+        elif msg.type == "tool":
+            print(f"[Tool returns] {msg.content}")
+
+    # The last message is the agent's final answer
+    final_message = response["messages"][-1]
+    print(f"\nAI Response: {final_message.text}")
+
+# STEP 3: menu line added in EXERCISES below.
+#endregion
+
+# ==========================================
+# Exercise 18: AI Agent with Two Tools (Calculator + Web Search)
+# ==========================================
+#region
+# STEP 0: IMPORTS -> TavilyClient added at the top of the file.
+#
+# STEP 1: SHARED STUFF (outside the function)
+#   Tool 1: reusing the safe `calculator` tool from Exercise 17 (no eval needed).
+
+# Tavily = a search engine made for AI agents. The key comes from .env
+tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+
+# Tool 2: web search
+@tool("web_search", description="Searches the web for up-to-date information, news and facts.")
+def web_search(query: str) -> Dict[str, Any] | str:
+    try:
+        return tavily_client.search(query)
+    except Exception as e:
+        return f"Error: {e}"
+
+# STEP 2: THE FUNCTION
+def run_exercise_18():
+    # 2a. Setup: LLM + agent with BOTH tools
+    llm = ChatGoogleGenerativeAI(model=GEMINI_FLASH_LITE_MODEL, api_key=os.getenv("GEMINI_API_KEY"))
+
+    tools = [calculator, web_search]
+    agent = create_agent(
+        model=llm,
+        tools=tools,
+        system_prompt="You are a helpful assistant. Use the calculator tool for any maths and the web_search tool for any information.",
+    )
+
+    # 2b. Ask a question that needs both tools
+    question = HumanMessage(content="If I got 10 cats and each of them eat 4 cans of fish everyday, search typical can of fish price online, and the price increasing every year around 15%, how much is feeding a cat cost in 4 years? Also, search the web for news funny cats.")
+    response = agent.invoke({"messages": [question]})
+
+    # 2c. Show each tool call, then the final answer (same as Exercise 17)
+    for msg in response["messages"]:
+        if msg.type == "ai" and msg.tool_calls:
+            for call in msg.tool_calls:
+                print(f"[Agent calls tool] {call['name']}({call['args']})")
+
+    final_message = response["messages"][-1]
+    print(f"\nAI Response: {final_message.text}")
+
+# STEP 3: menu line added in EXERCISES below.
+#endregion
+
+# ==========================================
+# Exercise 19: Currency Exchange Agent (Frankfurter API) + LangSmith tracing
+# ==========================================
+#region
+# STEP 0: IMPORTS -> added `requests` at the top of the file.
+#   LangSmith needs no import: load_dotenv() at the top already loads LANGCHAIN_TRACING_V2,
+#   LANGCHAIN_API_KEY and LANGCHAIN_PROJECT from .env, and LangChain sends traces by itself.
+#
+# STEP 1: SHARED STUFF (outside the function)
+
+# Frankfurter: free exchange rates from the European Central Bank, no API key needed
+FRANKFURTER_URL = "https://api.frankfurter.dev/v1/latest"
+
+@tool(
+    "get_exchange_rate",
+    description="Gets the latest exchange rate between two currencies. "
+                "Use 3-letter ISO currency codes, e.g. from_currency='USD', to_currency='MYR'.",
+)
+def get_exchange_rate(from_currency: str, to_currency: str) -> str:
+    try:
+        # GET https://api.frankfurter.dev/v1/latest?base=USD&symbols=MYR
+        response = requests.get(
+            FRANKFURTER_URL,
+            params={"base": from_currency.upper(), "symbols": to_currency.upper()},
+            timeout=10,  # don't let a slow API hang the agent
+        )
+        response.raise_for_status()  # 4xx/5xx (e.g. unknown currency) -> exception
+        data = response.json()       # {"amount":1.0,"base":"USD","date":"...","rates":{"MYR":4.077}}
+        rate = data["rates"][to_currency.upper()]
+        return f"1 {data['base']} = {rate} {to_currency.upper()} (date: {data['date']})"
+    except requests.RequestException as e:
+        return f"Error: could not get the rate for {from_currency}->{to_currency} ({e})"
+    except (KeyError, ValueError):
+        return "Error: unexpected response from the exchange rate API"
+
+# STEP 2: THE FUNCTION
+def run_exercise_19():
+    # 2a. Setup: LLM + agent with the currency tool
+    llm = ChatGoogleGenerativeAI(model=GEMINI_FLASH_LITE_MODEL, api_key=os.getenv("GEMINI_API_KEY"))
+
+    agent = create_agent(
+        model=llm,
+        tools=[get_exchange_rate],
+        system_prompt="You are a helpful assistant. Use the get_exchange_rate tool for any currency exchange rate question, and mention the date of the rate.",
+    )
+
+    # 2b. Ask the exercise question
+    question = HumanMessage(content="What is the current exchange rate from US dollars to Malaysian Ringgit?")
+    response = agent.invoke({"messages": [question]})
+
+    # 2c. Show the tool calls/results, then the final answer
+    for msg in response["messages"]:
+        if msg.type == "ai" and msg.tool_calls:
+            for call in msg.tool_calls:
+                print(f"[Agent calls tool] {call['name']}({call['args']})")
+        elif msg.type == "tool":
+            print(f"[Tool returns] {msg.content}")
+
+    final_message = response["messages"][-1]
+    print(f"\nAI Response: {final_message.text}")
+    print("\n(See the full trace at https://smith.langchain.com, under your LANGCHAIN_PROJECT)")
+
+# STEP 3: menu line added in EXERCISES below.
+#endregion
+
+# ==========================================
+# Exercise 20: Simple Agent with Memory
+# ==========================================
+#region
+
+def run_exercise_20():
+    llm = ChatGoogleGenerativeAI(model=GEMINI_FLASH_LITE_MODEL, api_key=os.getenv("GEMINI_API_KEY"))
+    agent = create_agent(
+        model=llm,
+        checkpointer=InMemorySaver()
+    )
+    
+    config = {"configurable": {"thread_id": "1"}}
+    
+    response = agent.invoke({"messages": [HumanMessage(content="Hi!I am Jack, can you AI not take over the world?")]}, config)
+    print(response["messages"][-1].text)
+    
+    response = agent.invoke({"messages": [HumanMessage(content="Hi! Whats my name?")]}, config)
+    print(response["messages"][-1].text)
+    
+    
+#endregion
+
+
+# ==========================================
+# Exercise 21: Agent Memory in PostgreSQL (PostgresSaver)
+# ==========================================
+#region
+# STEP 0: IMPORTS -> added PostgresSaver at the top of the file.
+#   Needs in .env:  DB_URI=postgresql://postgres:<your password>@localhost:5432/agentdb
+#   (the "agentdb" database must exist in PostgreSQL first)
+#
+# STEP 1: SHARED STUFF -> nothing new.
+
+# STEP 2: THE FUNCTION
+def run_exercise_21():
+    DB_URI = os.getenv("DB_URI")
+    if not DB_URI:
+        print("DB_URI is missing palui")
+        return
+
+    llm = ChatGoogleGenerativeAI(model=GEMINI_FLASH_LITE_MODEL, api_key=os.getenv("GEMINI_API_KEY"))
+
+    # 2a. Setup: open a connection to Postgres. `with` closes it automatically at the end
+    with PostgresSaver.from_conn_string(DB_URI) as checkpointer:
+        # Creates the tables the checkpointer needs. Safe to run every time
+        # (it skips tables that already exist); the slide says you can comment it out after the first run.
+        checkpointer.setup()
+
+        agent = create_agent(
+            model=llm,
+            checkpointer=checkpointer,  # memory is saved in PostgreSQL instead of RAM
+        )
+
+        # Same thread_id = same conversation, even across separate runs of this program
+        config = {"configurable": {"thread_id": "2"}}
+
+        # 2b. Talk to the agent
+        response = agent.invoke({"messages": [HumanMessage(content="Hi! My name is Ali.")]}, config)
+        print(f"AI: {response['messages'][-1].text}")
+
+        # Not on the slide: a follow-up question to prove the memory works
+        response = agent.invoke({"messages": [HumanMessage(content="What's my name?")]}, config)
+        print(f"AI: {response['messages'][-1].text}")
+
+        # 2c. Show how much this thread remembers (grows every time you run it)
+        print(f"\n(Thread '{config['configurable']['thread_id']}' now has {len(response['messages'])} messages stored in PostgreSQL)")
+
+# STEP 3: menu line added in EXERCISES below.
+#endregion
+
+
+# ==========================================
+# Exercise 22: LangChain Middleware
+# ==========================================
+#region
+
+def run_exercise_22():
+    primary_llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", api_key=os.getenv("GEMINI_API_KEY"))
+    fallback1 = ChatGoogleGenerativeAI(model="gemini-3.8-flash-lite", api_key=os.getenv("GEMINI_API_KEY"))
+    fallback2 = ChatGoogleGenerativeAI(model="gemini-3.5-flash-lite", api_key=os.getenv("GEMINI_API_KEY"))
+
+    agent = create_agent(
+        model=primary_llm,
+        middleware=[ModelFallbackMiddleware(fallback1, fallback2)],
+        system_prompt = "you are a clever assistant."
+    )
+    
+    response = agent.invoke(
+        {"messages": [HumanMessage(
+            content="Hi! I am Jack, can you AI not take over the world?")]})
+    
+    print(response["messages"][-1].text)
+    print(response["messages"][-1].response_metadata["model_name"])
+#endregion
+
+
+# ==========================================
+# Exercise 23: MCP Agent (stdio + HTTP servers)
+# ==========================================
+#region
+
+# STEP 0: IMPORTS -> added sys, asyncio, logging, ModelRetryMiddleware and
+#         MultiServerMCPClient at the top of the file.
+
+# STEP 1: SHARED STUFF (outside the function)
+#   The MCP SERVERS can't live in this file: each one must run as its own program.
+#   They sit in mcp/backend/server/ (stdio/random_number.py, http/roll_dice.py).
+#   The CLIENT side (the course's servers.py + main.py) lives here.
+# Course says gemini-2.5-flash, but Google retired it (404 NOT_FOUND).
+# gemini-3.8-flash kept timing out (504 DEADLINE_EXCEEDED), so use the fast lite model.
+MCP_MODEL = GEMINI_FLASH_LITE_MODEL
+MCP_SERVER_DIR = os.path.join(os.path.dirname(__file__), "mcp", "backend", "server")
+
+# = the course's servers.py: every MCP server the agent can use
+SERVERS = {
+    # stdio: the client starts this file itself as a child process (nothing to run by hand)
+    "random_number": {
+        "command": sys.executable,
+        "args": [os.path.join(MCP_SERVER_DIR, "stdio", "random_number.py")],
+        "transport": "stdio",
+    },
+    # HTTP: must ALREADY be running (terminal 1: python mcp/backend/server/http/roll_dice.py)
+    "roll_dice": {
+        "url": "http://localhost:8001/mcp",  # 8001: uvicorn app uses 8000
+        "transport": "streamable_http",
+    },
+}
+
+MCP_SYSTEM_PROMPT = (
+    "You are a helpful assistant. Use your tools when they fit. "
+    "If no tool can do the job, say so. Answer in plain sentences."
+)
+
+# Gemini prints warnings about MCP tool schemas it doesn't fully support; hide that noise
+logging.getLogger("langchain_google_genai._function_utils").setLevel(logging.ERROR)
+
+# = the course's main.py. Kept outside run_exercise_23 so Exercise 24 can reuse it.
+# async because MCP tools are async: loading and calling them needs `await`.
+
+def _get_mcp_api_key() -> str:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise SystemExit("GEMINI_API_KEY is missing from .env")
+    return api_key
+
+
+async def _get_mcp_tools(servers: dict):
+    # Connect to every server and collect their tools as normal LangChain tools
+    client = MultiServerMCPClient(servers)
+    tools = await client.get_tools()
+    print("Tools Available:", [t.name for t in tools])
+    return tools
+
+
+def _make_mcp_llm(api_key: str):
+    # By default Gemini retries 6 times with growing waits and NO timeout, so a rate
+    # limit (429) looks like a silent freeze for minutes. Fail fast and show the error.
+    return ChatGoogleGenerativeAI(model=MCP_MODEL, api_key=api_key,
+                                 timeout=60, max_retries=1)
+
+
+def _make_mcp_agent(llm, tools):
+    return create_agent(
+        model=llm,
+        tools=tools,
+        system_prompt=MCP_SYSTEM_PROMPT,
+        middleware=[ModelRetryMiddleware(max_retries=2)],
+    )
+
+
+def _log_mcp_message(m):
+    if m.type == "ai" and m.tool_calls:
+        for call in m.tool_calls:
+            print(f"  -> calling {call['name']} {call['args']}")
+    elif m.type == "tool":
+        print(f"  <- {m.name} answered")
+
+
+def _collect_mcp_messages(step: dict):
+    messages = []
+    for update in step.values():
+        for m in (update or {}).get("messages", []):
+            messages.append(m)
+            _log_mcp_message(m)
+    return messages
+
+
+async def ask_mcp_agent(servers: dict, question: str):
+    api_key = _get_mcp_api_key()
+    tools = await _get_mcp_tools(servers)
+    llm = _make_mcp_llm(api_key)
+    agent = _make_mcp_agent(llm, tools)
+
+    # astream instead of ainvoke: same result, but we get each step AS IT HAPPENS,
+    # so you can watch the agent work instead of staring at a blank screen.
+    print("Thinking... (web searches can take 30s+)")
+    messages = []
+    async for step in agent.astream({"messages": [HumanMessage(content=question)]},
+                                    stream_mode="updates"):
+        messages.extend(_collect_mcp_messages(step))
+
+    # Every tool result comes back as a message with type "tool"
+    print("Tools used:", [m.name for m in messages if m.type == "tool"])
+    print(messages[-1].text)
+
+# STEP 2: THE FUNCTION (asyncio.run = starts the async code from the normal menu)
+def run_exercise_23():
+    asyncio.run(ask_mcp_agent(
+        SERVERS,
+        "Roll two dice, then give me a random number between 1 and 10."
+    ))
+
+# STEP 3: menu line added in EXERCISES below.
+#endregion
+
+
+# ==========================================
+# Exercise 24: MCP Remote Search (Tavily)
+# ==========================================
+#region
+
+# STEP 0: IMPORTS -> nothing new.
+
+# STEP 1: SHARED STUFF
+#   Reusing: SERVERS + ask_mcp_agent (Exercise 23), TAVILY_API_KEY (top of the file,
+#   read AFTER load_dotenv() so it is set).
+#   Tavily hosts this MCP server on the internet: nothing to start yourself.
+#   The key goes in the header, NEVER in the URL (URLs end up in logs).
+TAVILY_MCP_SERVERS = {
+    **SERVERS,  # keep random_number + roll_dice unchanged
+    "tavily": {
+        "url": "https://mcp.tavily.com/mcp/",
+        "transport": "streamable_http",
+        "headers": {"Authorization": f"Bearer {TAVILY_API_KEY}"},
+    },
+}
+
+# STEP 2: THE FUNCTION
+def run_exercise_24():
+    if not TAVILY_API_KEY:
+        raise SystemExit("TAVILY_API_KEY is missing from .env")
+    asyncio.run(ask_mcp_agent(
+        TAVILY_MCP_SERVERS,
+        "What are the top AI news headlines today? "
+        "Then give me a random number between 1 and 10."
+    ))
+
+# STEP 3: menu line added in EXERCISES below.
+#endregion
+
+# ==========================================
+# Exercise 25: Read-only PostgreSQL MCP Server
+# ==========================================
+#region
+
+# STEP 0: IMPORTS -> nothing new.
+
+# STEP 1: SHARED STUFF
+#   Reusing: SERVERS, MCP_SERVER_DIR, ask_mcp_agent (Exercise 23).
+#   New server file: mcp/backend/server/stdio/postgres_server.py (tools: list_tables, run_query)
+#   New data file:   mcp/backend/books.sql
+#   ONE-TIME SETUP (PowerShell, from "lesson/phase4_genai and agentic/ai"):
+#     & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -c "CREATE DATABASE books_db"
+#     & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -d books_db -f mcp/backend/books.sql
+#   DATABASE_URL goes in mcp/backend/.env (the server's load_dotenv finds that one first):
+#     DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:5432/books_db
+POSTGRES_MCP_SERVERS = {
+    **SERVERS,  # keep random_number + roll_dice unchanged
+    # stdio again: the client launches postgres_server.py itself
+    "postgres": {
+        "command": sys.executable,
+        "args": [os.path.join(MCP_SERVER_DIR, "stdio", "postgres_server.py")],
+        "transport": "stdio",
+    },
+}
+
+# STEP 2: THE FUNCTION
+def run_exercise_25():
+    asyncio.run(ask_mcp_agent(
+        POSTGRES_MCP_SERVERS,
+        "How many books are there in books_db, and who wrote the first one?"
+    ))
+
+# STEP 3: menu line added in EXERCISES below.
+#endregion
 
 # ==========================================
 # Main Menu Configuration
@@ -899,10 +1383,19 @@ EXERCISES = {
     "14": ("Exercise 14 : Query the PDF (RAG)", run_exercise_14),
     "15": ("Exercise 15 : Ask the PDF via FastAPI (GET endpoint)", run_exercise_15),
     "16": ("Exercise 16 : Diabetes RAG Chatbot Frontend", run_exercise_16),
+    "17": ("Exercise 17 : AI Agent with Tool Calling", run_exercise_17),
+    "18": ("Exercise 18 : AI Agent with Two Tools (Calculator + Web Search)", run_exercise_18),
+    "19": ("Exercise 19 : Currency Exchange Agent (Frankfurter API) + LangSmith", run_exercise_19),
+    "20": ("Exercise 20 : Simple Agent with Memory", run_exercise_20),
+    "21": ("Exercise 21 : Agent Memory in PostgreSQL (PostgresSaver)", run_exercise_21),
+    "22": ("Exercise 22 : LangChain Middleware", run_exercise_22),
+    "23": ("Exercise 23 : MCP Agent (stdio + HTTP servers)", run_exercise_23),
+    "24": ("Exercise 24 : MCP Remote Search (Tavily)", run_exercise_24),
+    "25": ("Exercise 25 : Read-only PostgreSQL MCP Server", run_exercise_25),
 
     # Example of how to add your next one (remove the '#' to activate it once the function is built):
-    # "17": ("Exercise 17 : <slide title>", run_exercise_17),
-    #   - the key is a STRING ("17"), it's what you type in the menu
+    # "26": ("Exercise 26 : <slide title>", run_exercise_26),
+    #   - the key is a STRING ("26"), it's what you type in the menu
     #   - the function name has NO () — the menu calls it for you
 }
 
@@ -923,3 +1416,4 @@ if __name__ == "__main__":
         function_to_run()
     else:
         print(f"Invalid choice. Please run the script again and select one of: {valid_choices}")
+

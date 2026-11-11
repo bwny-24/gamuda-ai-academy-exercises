@@ -1,1 +1,0 @@
-# gamuda-ai-academy-exercises

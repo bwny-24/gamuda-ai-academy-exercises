@@ -1,0 +1,49 @@
+# ==========================================
+# PHASE 4: Generative AI & Agentic Systems, all Python packages
+# ==========================================
+# Install everything (from the repo root, into the project venv):
+#   .venv\Scripts\pip install -r "lesson/phase4_genai and agentic/requirements.txt"
+# "#" lines are comments, pip skips them.
+
+# ==========================================
+# AI  (ai/THE_EXAMPLE.py)
+# ==========================================
+
+# --- Core: LangChain + Gemini (every AI exercise) ---
+langchain
+langchain-core
+langchain-community
+langchain-google-genai
+python-dotenv            # reads the keys from .env
+langsmith                # tracing (Exercise 19)
+
+# --- Web APIs & apps (Exercises 5-8, 15-16) ---
+fastapi
+uvicorn
+python-multipart         # lets FastAPI receive uploaded files (PDF, image)
+streamlit
+requests                 # Frankfurter currency API (Exercise 19)
+
+# --- Documents & RAG (Exercises 5, 9-16) ---
+pypdf                    # read PDF text
+langchain-text-splitters
+pymongo
+langchain-mongodb        # MongoDB Atlas vector search
+certifi; sys_platform == "darwin"   # Mac only: SSL certificates for MongoDB Atlas
+
+# --- Agents, memory & MCP (Exercises 17-25) ---
+tavily-python            # web search tool
+langgraph
+langgraph-checkpoint-postgres   # agent memory in PostgreSQL (Exercise 21)
+langchain-mcp-adapters
+mcp<2
+sqlalchemy               # postgres_server.py MCP server (Exercise 25)
+psycopg[binary]
+
+# ==========================================
+# Computer Vision  (computerVision/exercises.py)
+# ==========================================
+opencv-python            # import name: cv2  (installs numpy too)
+scikit-image             # import name: skimage  (Exercise 5: restoration, sample images)
+scipy                    # Exercise 5: convolve2d (blur)
+matplotlib               # Exercise 5: side-by-side plot

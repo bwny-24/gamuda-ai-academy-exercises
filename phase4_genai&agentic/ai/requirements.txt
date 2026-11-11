@@ -13,3 +13,7 @@ pymongo
 langchain-mongodb
 pypdf
 certifi; sys_platform == "darwin"
+tavily-python
+langsmith
+langgraph
+langgraph-checkpoint-postgres
