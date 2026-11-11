@@ -5,23 +5,18 @@ from launcher.discovery import check, find_phases
 from launcher.runners import run_exercise
 
 # ==========================================
-# MAIN MENU: Fullstack Web Development with AI (all weeks)
+# MAIN MENU: Fullstack Web Development with AI 
 # ==========================================
+# Heres is the menu for the course supaya senang check semua or relearning purposes. 
 # Run:    python menu.py
 # Check:  python menu.py --check     (lists everything, reports broken paths)
 #
-# 3 levels:  Phase  ->  Section (a week/topic)  ->  Exercise
-# Nothing is listed in this file. The menu is built from the folders:
-#
-#   phase<N>_<name>/                 a phase      (optional phase.toml = nicer title)
-#       <section>/                   a week/topic (must contain week.toml)
-#           week.toml                title + the list of exercises
-#
-# Weeks 1-4 have one folder per week. From week 5 on the course mixes topics,
-# so those are grouped by topic instead (books_crud, ai, computer_vision).
-#
+# to check the folder is by phase learning, so kalau mau check by folders bole buka 1 1 
+# dalam setiap phase folder either contain what been done by weeks or topic 
+# ada 3 layers, maybe.. idk, tingu la
+
+# Benny notes: how to add new exercise, section, phase, etc.
 # HOW TO ADD AN EXERCISE: open that section's week.toml and add
-#
 #   [[exercise]]
 #   title = "What it shows in the menu"
 #   type  = "html"            # html | react | python | menu | fastapi | fullstack
