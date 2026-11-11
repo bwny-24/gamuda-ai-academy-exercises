@@ -1,0 +1,19 @@
+title = "Books CRUD : FastAPI + PostgreSQL + React"
+note = "Needs PostgreSQL running and backend/.env (copy backend/.env.example and fill it in)."
+
+[[exercise]]
+title = "Full stack : backend + frontend together"
+type = "fullstack"
+backend = "backend"
+frontend = "frontend"
+
+[[exercise]]
+title = "Backend only : try the API in Swagger UI"
+type = "fastapi"
+path = "backend"
+open = "/docs"
+
+[[exercise]]
+title = "Frontend only"
+type = "react"
+path = "frontend"

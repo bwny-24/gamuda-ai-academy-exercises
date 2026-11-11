@@ -1,0 +1,11 @@
+title = "Week 1 : HTML & CSS"
+
+[[exercise]]
+title = "CSS tutorial : inline / internal / external CSS and selectors"
+type = "html"
+path = "example.html"
+
+[[exercise]]
+title = "Recipe card"
+type = "html"
+path = "recipecard.html"

@@ -1,0 +1,25 @@
+title = "GenAI, RAG & Agents (LangChain + Gemini)"
+note = "Needs the API keys in ai/.env."
+
+[[exercise]]
+title = "Exercise menu : intro A-D + exercises 1-25 (THE_EXAMPLE.py)"
+type = "menu"
+path = "THE_EXAMPLE.py"
+
+[[exercise]]
+title = "API server for exercises 5, 6 and 15 : try them in Swagger UI"
+type = "fastapi"
+app = "THE_EXAMPLE:app"
+open = "/docs"
+
+[[exercise]]
+title = "Exercise 16 : Diabetes RAG chatbot page"
+type = "fastapi"
+app = "THE_EXAMPLE:app"
+open = "/chat"
+
+[[exercise]]
+title = "Text translator : FastAPI + web page (main.py)"
+type = "fastapi"
+app = "main:app"
+open = "frontend/index.html"

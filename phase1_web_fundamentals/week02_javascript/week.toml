@@ -1,0 +1,17 @@
+title = "Week 2 : JavaScript Essentials"
+note = "These pages print to the browser console: press F12 and open the Console tab."
+
+[[exercise]]
+title = "Variables, data types, objects & arrays"
+type = "html"
+path = "index.html"
+
+[[exercise]]
+title = "Control flow & functions (if, switch, loops, arrow functions)"
+type = "html"
+path = "controlFlow.html"
+
+[[exercise]]
+title = "Exercise : team array of objects + forEach"
+type = "html"
+path = "exercise.html"

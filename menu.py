@@ -1,93 +1,86 @@
-import subprocess, sys
+import sys
 from pathlib import Path
+
+from launcher.discovery import check, find_phases
+from launcher.runners import run_exercise
 
 # ==========================================
 # MAIN MENU: Fullstack Web Development with AI (all weeks)
 # ==========================================
-# Run:  python lesson/menu.py
+# Run:    python menu.py
+# Check:  python menu.py --check     (lists everything, reports broken paths)
 #
 # 3 levels:  Phase  ->  Section (a week/topic)  ->  Exercise
-#   - Levels 1 and 2 are here.
-#   - Level 3 (the exercises) is in each section's own menu file
-#     (phase1_webFundamentals/week 1/exercises.py, phase4_genai&agentic/ai/THE_EXAMPLE.py, ...).
-# Non-Python exercises (HTML, React, FastAPI) are opened/started by lesson/launch.py.
-# Picking a section starts that file as its own program, inside its own folder,
-# so its .env, PDFs, HTML pages etc. are found exactly as if you ran it yourself.
+# Nothing is listed in this file. The menu is built from the folders:
 #
-# Folders on disk follow the same idea:
-#   lesson/phaseN_<name>/week N/...   (AI stays in one folder: phase4_genai&agentic/ai)
+#   phase<N>_<name>/                 a phase      (optional phase.toml = nicer title)
+#       <section>/                   a week/topic (must contain week.toml)
+#           week.toml                title + the list of exercises
+#
+# Weeks 1-4 have one folder per week. From week 5 on the course mixes topics,
+# so those are grouped by topic instead (books_crud, ai, computer_vision).
+#
+# HOW TO ADD AN EXERCISE: open that section's week.toml and add
+#
+#   [[exercise]]
+#   title = "What it shows in the menu"
+#   type  = "html"            # html | react | python | menu | fastapi | fullstack
+#   path  = "page.html"       # relative to the folder the week.toml is in
+#
+#   html      path = the .html file                      -> opens in the browser
+#   react     path = the Vite app folder                 -> npm install (once) + npm run dev
+#   python    path = the .py file                        -> runs it in its own folder
+#   menu      path = a .py file that shows its own menu  -> same as python
+#   fastapi   path = backend folder (default "."), app = "main:app", port = 8000,
+#             open = "/docs" or a local .html file       -> uvicorn, then opens that page
+#   fullstack backend = folder, frontend = folder        -> both together, Ctrl+C stops both
+#
+# HOW TO ADD A SECTION: make a folder inside a phase and put a week.toml in it.
+# HOW TO ADD A PHASE:   make a folder named phase<N>_<name> at the top.
 
-LESSON_DIR = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent
 
-# HOW TO ADD A SECTION:
-#   find its phase below and add:  "key": ("Description", "path/to/menu_file.py")
-#   path is relative to lesson/.  None = not built yet (shows "coming soon")
-PHASES = {
-    "1": ("Phase 1 : Web Fundamentals", {
-        "1": ("Week 1 : Web Fundamentals (HTML & CSS)", "phase1_webFundamentals/week 1/exercises.py"),
-        "2": ("Week 2 : JavaScript Essentials", "phase1_webFundamentals/week 2/exercises.py"),
-        "3": ("Week 3 : Design & Version Control (Figma, Git)", None),
-    }),
-    "2": ("Phase 2 : React Development & State", {
-        "1": ("Week 3 : React Core", "phase2_react/week 3/exercises.py"),
-        "2": ("Week 4 : State, Hooks & APIs", "phase2_react/week 4/exercises.py"),
-        "3": ("Week 5 : Advanced React", None),
-    }),
-    "3": ("Phase 3 : Backend Integration & Cloud Services", {
-        "1": ("Week 5 : Backend Foundations (FastAPI)", None),
-        "2": ("Week 6 : Full-Stack Integration & Serverless", "phase3_backend&cloud/exercises.py"),
-        "3": ("Week 7 : Cloud Infrastructure & Deployment", None),
-        "4": ("Week 9-10 : Cloud Security, Data & Observability", None),
-    }),
-    "4": ("Phase 4 : Generative AI & Agentic Systems", {
-        # Kept together in one file: all these exercises use AI and share helpers
-        "1": ("Week 7-9 : GenAI, RAG & Agents (AI)", "phase4_genai&agentic/ai/THE_EXAMPLE.py"),
-        "2": ("Introduction to Computer Vision (OpenCV)", "phase4_genai&agentic/computerVision/exercises.py"),
-    }),
-}
-
-def run_section(menu_file: str):
-    script = LESSON_DIR / menu_file
-    # cwd = the section's own folder, sys.executable = same Python/venv as this menu
-    if not script.exists():
-        print(f"Can't find {script}. Was the folder renamed? Update PHASES in menu.py.")
-        return
-    try:
-        subprocess.run([sys.executable, script.name], cwd=script.parent)
-    except KeyboardInterrupt:
-        pass  # Ctrl+C stopped an app/server: just come back to the menu
-
-# Shows a numbered list and returns the key the user picked, or None for back/quit
-def pick(title: str, options: dict, back_label: str):
+# Shows a numbered list and returns the item the user picked, or None for back/quit
+def pick(title: str, items: list, back_label: str, note: str = ""):
     while True:
         print(f"\n========== {title} ==========")
-        for key, (description, value) in options.items():
-            print(f"{key}. {description}{'' if value else '  (coming soon)'}")
+        if note:
+            print(note)
+        for number, item in enumerate(items, start=1):
+            print(f"{number}. {item['title']}")
         print(f"b. {back_label}")
 
         choice = input("Pick one: ").strip().lower()
         if choice == "b":
             return None
-        if choice in options:
-            return choice
+        if choice.isdigit() and 1 <= int(choice) <= len(items):
+            return items[int(choice) - 1]
         print("Invalid choice.")
 
-if __name__ == "__main__":
+def main():
     while True:
         # Level 1: phase
-        phase_key = pick("Coding is Fun: Course Menu", PHASES, "Quit")
-        if phase_key is None:
+        phase = pick("Coding is Fun: Course Menu", find_phases(ROOT), "Quit")
+        if phase is None:
             break
-        phase_title, sections = PHASES[phase_key]
 
         # Level 2: section inside that phase
         while True:
-            section_key = pick(phase_title, sections, "Back to phases")
-            if section_key is None:
+            section = pick(phase["title"], phase["sections"], "Back to phases")
+            if section is None:
                 break
-            description, menu_file = sections[section_key]
-            if menu_file is None:
-                print(f"{description} is not built yet.")
-                continue
-            # Level 3: the section's own exercise menu
-            run_section(menu_file)
+
+            # Level 3: exercise inside that section
+            while True:
+                exercise = pick(section["title"], section["exercises"], "Back to sections", section["note"])
+                if exercise is None:
+                    break
+                run_exercise(section["folder"], exercise)
+
+if __name__ == "__main__":
+    if "--check" in sys.argv:
+        sys.exit(0 if check(ROOT) else 1)
+    try:
+        main()
+    except (KeyboardInterrupt, EOFError):
+        print()

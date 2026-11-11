@@ -1,0 +1,6 @@
+title = "Introduction to Computer Vision (OpenCV)"
+
+[[exercise]]
+title = "Exercise menu : 5 OpenCV exercises (exercises.py)"
+type = "menu"
+path = "exercises.py"
