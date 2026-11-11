@@ -2,6 +2,6 @@
 after week 4 semua coding ada becampur suda , will update later 
 
 10/11/26: 
-updated by phase
-try to run by menu.py
+updated to be organized by phases of classes without changing the code typed by hand
+to see all run menu.py
 
