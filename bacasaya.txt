@@ -1,3 +1,7 @@
-after week 4 semua coding ada becampur suda , will update later (30/10/2026)
+30/10/2026:
+after week 4 semua coding ada becampur suda , will update later 
 
-10/11/26: updated by phase 
+10/11/26: 
+updated by phase
+try to run by menu.py
+
