@@ -53,7 +53,7 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 #region
 def run_intro_a():
     llm = ChatGoogleGenerativeAI(
-        model="gemini-3.8-flash",
+        model=GEMINI_FLASH_LITE_MODEL,  # slide's "gemini-3.8-flash" hangs with no reply
         api_key=os.getenv("GEMINI_API_KEY")
     )
 
@@ -79,7 +79,7 @@ def run_intro_a():
 #region
 def run_intro_b():
     llm = ChatGoogleGenerativeAI(
-        model="gemini-3.8-flash",
+        model=GEMINI_FLASH_LITE_MODEL,  # slide's "gemini-3.8-flash" hangs with no reply
         api_key=os.getenv("GEMINI_API_KEY")
     )
 
@@ -114,7 +114,7 @@ def run_intro_b():
 #region
 def run_intro_c():
     llm = ChatGoogleGenerativeAI(
-        model="gemini-3.8-flash",
+        model=GEMINI_FLASH_LITE_MODEL,  # slide's "gemini-3.8-flash" hangs with no reply
         api_key=os.getenv("GEMINI_API_KEY")
     )
 
@@ -161,7 +161,7 @@ def run_intro_c():
 #region
 def run_intro_d():
     llm = ChatGoogleGenerativeAI(
-        model="gemini-3.8-flash",
+        model=GEMINI_FLASH_LITE_MODEL,  # slide's "gemini-3.8-flash" hangs with no reply
         api_key=os.getenv("GEMINI_API_KEY")
     )
 
@@ -206,7 +206,7 @@ Return the answer immediately."""
 #region
 def run_exercise_1():
     llm = ChatGoogleGenerativeAI(
-        model="gemini-3.8-flash",
+        model=GEMINI_FLASH_LITE_MODEL,  # slide's "gemini-3.8-flash" hangs with no reply
         api_key=os.getenv("GEMINI_API_KEY")
     )
 
