@@ -55,4 +55,4 @@ opencv-python            # import name: cv2  (installs numpy too)
 scikit-image             # import name: skimage  (Exercise 5: restoration, sample images)
 scipy                    # Exercise 5: convolve2d (blur)
 matplotlib               # Exercise 5: side-by-side plot
-ultralytics               # Exercise 6: YOLOv8 (object detection)
+ultralytics              # Exercise 6: YOLOv8 (object detection)

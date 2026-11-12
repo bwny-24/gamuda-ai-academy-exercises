@@ -1,0 +1,29 @@
+{
+  "categories": [
+    {
+      "id": 0,
+      "name": "excavator"
+    },
+    {
+      "id": 1,
+      "name": "forklift"
+    },
+    {
+      "id": 2,
+      "name": "helmet"
+    },
+    {
+      "id": 3,
+      "name": "man"
+    },
+    {
+      "id": 4,
+      "name": "vests"
+    }
+  ],
+  "info": {
+    "year": 2026,
+    "version": "1.0",
+    "contributor": "Label Studio"
+  }
+}

@@ -1,0 +1,20 @@
+# Construction-PPE dataset for Exercise 6 (exercises.py).
+# No "path:" line on purpose: YOLO then looks for the images next to THIS file,
+# so it works from any folder. (Ultralytics' built-in construction-ppe.yaml looks
+# in its own datasets folder and downloads the dataset again.)
+train: construction-ppe/images/train  # 800 images
+val: construction-ppe/images/val      # 200 images
+
+names:
+  0: helmet
+  1: gloves
+  2: vest
+  3: boots
+  4: goggles
+  5: Person
+  6: no_helmet
+  7: no_goggle
+  8: no_gloves
+  9: no_boots
+  10: forklift
+  11: no_vest

@@ -1,9 +1,11 @@
 import os
-import cv2                      # slides write `import cv2 as cv`; same library, we keep the name cv2
+import glob                     # Exercise 7 (find files by pattern, e.g. train*/weights/best.pt)
+import cv2                     # slides write `import cv2 as cv`; same library, we keep the name cv2
 import numpy as np              # Exercise 5 (images are NumPy arrays)
 import matplotlib.pyplot as plt # Exercise 5 (side-by-side plot)
 from scipy.signal import convolve2d as conv2      # Exercise 5 (apply the blur)
 from skimage import color, data, restoration      # Exercise 5 (scikit-image)
+from ultralytics import YOLO                      # Exercises 6-7 (YOLO training, predicting)
 
 # ==========================================
 # PHASE 4: Introduction to Computer Vision (OpenCV)
@@ -232,6 +234,65 @@ def run_exercise_5():
 #endregion
 
 # ==========================================
+# Exercise 6: Training YOLO on Construction-PPE  (slide: train.py)
+# ==========================================
+#region
+# Slide: YOLO("yolo26n.pt") and data="construction-ppe.yaml", both looked up from the folder
+# you run python in. Ours point into labelNyolo/, so the weights, the dataset and the
+# training results (runs/) all stay together in that one folder.
+YOLO_PATH = os.path.join(DATA_PATH, "labelNyolo")
+EPOCHS = 6  # 1 = quick test that it runs; raise it for real training
+
+def run_exercise_6():
+    model = YOLO(os.path.join(YOLO_PATH, "yolo26n.pt"))  # downloaded on the first run
+    results = model.train(
+        data=os.path.join(YOLO_PATH, "construction-ppe.yaml"),
+        epochs=EPOCHS,
+        imgsz=640,
+        project=os.path.join(YOLO_PATH, "runs"),  # not on the slide: where results are saved
+    )
+
+    print("\nmAP50 per class:")
+    for i, class_id in enumerate(results.ap_class_index):
+        print(f"  {results.names[class_id]}: {results.box.ap50[i]:.3f}")
+    print(f"best.pt -> {model.trainer.best}")
+#endregion
+
+# ==========================================
+# Exercise 7: Predicting with the trained model  (slide: predict.py)
+# ==========================================
+#region
+def run_exercise_7():
+    # Every training run makes a new folder (train, train-2, train-3, ...): take the newest best.pt.
+    # Slide looks in runs/detect/train*; ours are in labelNyolo/runs/train* (see Exercise 6).
+    weights = glob.glob(os.path.join(YOLO_PATH, "runs", "train*", "weights", "best.pt"))
+    if not weights:
+        print("No best.pt found. Run Exercise 6 first.")
+        return
+    best = max(weights, key=os.path.getmtime)  # getmtime = when the file was last saved
+    print(f"Using {best}")
+
+    # 3 images from images/test, or images/val when there is no test folder (ours has none)
+    images_path = os.path.join(YOLO_PATH, "construction-ppe", "images")
+    folder = os.path.join(images_path, "test")
+    if not os.path.isdir(folder):
+        folder = os.path.join(images_path, "val")
+    images = sorted(glob.glob(os.path.join(folder, "*.jpg")))[:3]
+
+    model = YOLO(best)
+    # save=True writes a copy of each image with the boxes drawn on it
+    results = model.predict(images, save=True, project=os.path.join(YOLO_PATH, "runs"), name="predict")
+
+    for result in results:
+        print(f"\n{os.path.basename(result.path)}")
+        if len(result.boxes) == 0:
+            print("  (nothing detected)")
+        for box in result.boxes:
+            print(f"  {result.names[int(box.cls)]}: {float(box.conf):.2f}")
+    print(f"\nResult images saved to {results[0].save_dir}")
+#endregion
+
+# ==========================================
 # Computer Vision Menu
 # ==========================================
 # HOW TO ADD A NEW EXERCISE: write def run_exercise_N() above, add a line below.
@@ -241,6 +302,8 @@ EXERCISES = {
     "3": ("Exercise 3 : Scaling Images", run_exercise_3),
     "4": ("Exercise 4 : Rotating Images", run_exercise_4),
     "5": ("Exercise 5 : Image Restoration (Wiener)", run_exercise_5),
+    "6": ("Exercise 6 : Training YOLO on Construction-PPE", run_exercise_6),
+    "7": ("Exercise 7 : Predicting with the trained model", run_exercise_7),
 }
 
 if __name__ == "__main__":

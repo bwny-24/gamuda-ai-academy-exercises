@@ -153,6 +153,7 @@ activemq-data/
 .env
 .envrc
 .venv
+.venv-labelstudio/
 env/
 venv/
 ENV/
@@ -218,3 +219,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Personal prompt for AI assistants (local only)
+ai_prompt.txt
+
+# YOLO training outputs, datasets and model weights
+runs/
+datasets/
+*.pt
+phase4_genai_agentic/computer_vision/labelNyolo/construction-ppe/
