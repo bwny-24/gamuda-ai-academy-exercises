@@ -1,6 +1,6 @@
 title = "Introduction to Computer Vision (OpenCV)"
 
 [[exercise]]
-title = "Exercise menu : 5 OpenCV exercises + YOLO train & predict (exercises.py)"
+title = "Exercise menu : 5 OpenCV exercises + YOLO train, predict, fine-tune & validate (exercises.py)"
 type = "menu"
 path = "exercises.py"

@@ -228,3 +228,4 @@ runs/
 datasets/
 *.pt
 phase4_genai_agentic/computer_vision/labelNyolo/construction-ppe/
+phase4_genai_agentic/computer_vision/labelNyolo/data/

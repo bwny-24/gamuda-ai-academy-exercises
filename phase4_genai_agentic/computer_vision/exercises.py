@@ -1,11 +1,12 @@
 import os
 import glob                     # Exercise 7 (find files by pattern, e.g. train*/weights/best.pt)
+import random                   # Exercise 9 (pick a random image)
 import cv2                     # slides write `import cv2 as cv`; same library, we keep the name cv2
 import numpy as np              # Exercise 5 (images are NumPy arrays)
 import matplotlib.pyplot as plt # Exercise 5 (side-by-side plot)
 from scipy.signal import convolve2d as conv2      # Exercise 5 (apply the blur)
 from skimage import color, data, restoration      # Exercise 5 (scikit-image)
-from ultralytics import YOLO                      # Exercises 6-7 (YOLO training, predicting)
+from ultralytics import YOLO                      # Exercises 6-9 (YOLO training, predicting, fine-tuning, validating)
 
 # ==========================================
 # PHASE 4: Introduction to Computer Vision (OpenCV)
@@ -293,6 +294,77 @@ def run_exercise_7():
 #endregion
 
 # ==========================================
+# Exercise 8: Fine-Tuning YOLO  (slide: 08_finetune.py)
+# ==========================================
+#region
+# Same training as Exercise 6, but on labelNyolo/data/: the dataset split into
+# images/{train,val,test} + labels/{train,val,test}, described by data/data.yaml.
+# Slide: project="runs/detect" (relative). Ultralytics puts a relative project under its
+# OWN global runs folder, not next to this file, so we give the full path instead.
+FINETUNE_EPOCHS = 1  # 1 = quick test that it runs (~5 min on CPU); raise it for real training
+
+def run_exercise_8():
+    model = YOLO(os.path.join(YOLO_PATH, "yolo26n.pt"))
+    results = model.train(
+        data=os.path.join(YOLO_PATH, "data", "data.yaml"),
+        epochs=FINETUNE_EPOCHS,
+        imgsz=640,
+        project=os.path.join(YOLO_PATH, "runs", "detect"),
+        name="finetune",  # a rerun saves to finetune-2, finetune-3, ... instead of overwriting
+    )
+
+    box = results.box
+    print(f"\n{'Class':<12}{'P':>8}{'R':>8}{'mAP50':>8}{'mAP50-95':>10}")
+    print(f"{'all':<12}{box.mp:>8.3f}{box.mr:>8.3f}{box.map50:>8.3f}{box.map:>10.3f}")
+    for i, class_id in enumerate(results.ap_class_index):
+        print(f"{results.names[class_id]:<12}{box.p[i]:>8.3f}{box.r[i]:>8.3f}{box.ap50[i]:>8.3f}{box.ap[i]:>10.3f}")
+    print(f"\nbest.pt -> {model.trainer.best}")
+#endregion
+
+# ==========================================
+# Exercise 9: Validating the model  (slide: 09_validation.py)
+# ==========================================
+#region
+# Takes the newest best.pt from ANY training run (Exercise 6 or 8), scores it on
+# data/images/val, then predicts on one random val image.
+def run_exercise_9():
+    # ** + recursive=True = search every folder under runs/, however deep
+    weights = glob.glob(os.path.join(YOLO_PATH, "runs", "**", "weights", "best.pt"), recursive=True)
+    if not weights:
+        print("No best.pt found. Run Exercise 6 or 8 first.")
+        return
+    best = max(weights, key=os.path.getmtime)
+    print(f"Using {best}")
+
+    data_yaml = os.path.join(YOLO_PATH, "data", "data.yaml")
+    if not os.path.exists(data_yaml):
+        print(f"Can't find {data_yaml}")
+        return
+
+    model = YOLO(best)
+    output_path = os.path.join(YOLO_PATH, "runs", "detect")  # same reason as Exercise 8
+
+    metrics = model.val(data=data_yaml, project=output_path, name="val")
+    # map = mAP50-95 (the strict average), map50 / map75 = only at 50% / 75% box overlap
+    print(f"\nmAP50-95: {metrics.box.map:.3f}")
+    print(f"mAP50:    {metrics.box.map50:.3f}")
+    print(f"mAP75:    {metrics.box.map75:.3f}")
+    print("\nmAP50-95 per class:")
+    for class_id, value in enumerate(metrics.box.maps):  # maps = one mAP50-95 per class ID
+        print(f"  {metrics.names[class_id]:<12}{value:.3f}")
+
+    image = random.choice(sorted(glob.glob(os.path.join(YOLO_PATH, "data", "images", "val", "*.jpg"))))
+    print(f"\nImage: {image}")
+    result = model.predict(image, save=True, project=output_path, name="predict")[0]
+
+    if len(result.boxes) == 0:
+        print("  (nothing detected)")
+    for box in result.boxes:
+        print(f"  {result.names[int(box.cls)]}: {float(box.conf):.2f}")
+    print(f"\nAnnotated image saved to {os.path.join(result.save_dir, os.path.basename(image))}")
+#endregion
+
+# ==========================================
 # Computer Vision Menu
 # ==========================================
 # HOW TO ADD A NEW EXERCISE: write def run_exercise_N() above, add a line below.
@@ -304,6 +376,8 @@ EXERCISES = {
     "5": ("Exercise 5 : Image Restoration (Wiener)", run_exercise_5),
     "6": ("Exercise 6 : Training YOLO on Construction-PPE", run_exercise_6),
     "7": ("Exercise 7 : Predicting with the trained model", run_exercise_7),
+    "8": ("Exercise 8 : Fine-Tuning YOLO (data/data.yaml)", run_exercise_8),
+    "9": ("Exercise 9 : Validating the model + predicting a random image", run_exercise_9),
 }
 
 if __name__ == "__main__":
